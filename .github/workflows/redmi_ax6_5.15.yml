@@ -8,7 +8,7 @@
 # Description: Build OpenWrt using GitHub Actions
 #
 
-name: Build 5.15-DEV-AX6
+name: redmi_ax6_5.15
 
 on:
   repository_dispatch:
@@ -23,9 +23,9 @@ env:
   REPO_URL: https://github.com/bitthief/openwrt
   REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: AX6-5.15.config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part2.sh
+  CONFIG_FILE: ./config/redmi_ax6_5.15.config
+  DIY_P1_SH: ./scripts/diy-part1.sh
+  DIY_P2_SH: ./scripts/diy-part2.sh
   UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_COWTRANSFER: false
