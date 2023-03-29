@@ -126,7 +126,7 @@ jobs:
       uses: actions/upload-artifact@v3
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: redmi_ax6_wifi${{ env.FILE_DATE }}
+        name: redmi_ax6_5.15${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
     - name: Upload firmware to cowtransfer
