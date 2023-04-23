@@ -60,11 +60,11 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
         
-    - name: Apply patches
-      run: |
-        cp -rf patchs/. openwrt/
-        cd openwrt
-        git am -s < lede_add_ax6.patch
+    - name: Cache
+      uses: stupidloud/cachewrtbuild@main
+      with:
+        ccache: 'true'
+        prefix: ${{ github.workspace }}/openwrt
         
     - name: Load custom feeds
       run: |
