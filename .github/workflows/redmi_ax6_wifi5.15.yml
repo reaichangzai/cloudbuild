@@ -20,7 +20,7 @@ on:
         default: 'false'
 
 env:
-  REPO_URL: https://github.com/openwrt/openwrt.git
+  REPO_URL: https://github.com/Boos4721/openwrt.git
   REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: ./config/redmi_ax6_wifi5.15.config
@@ -59,6 +59,12 @@ jobs:
         df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+        
+    - name: Apply patches
+      run: |
+        cp -rf patchs/. openwrt/
+        cd openwrt
+        git am -s < lede_add_ax6.patch
         
     - name: Load custom feeds
       run: |
