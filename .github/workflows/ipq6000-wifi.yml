@@ -20,8 +20,8 @@ on:
         default: 'false'
 
 env:
-  REPO_URL: https://github.com/w2xg2022/ax18usb.git
-  REPO_BRANCH: main
+  REPO_URL: https://github.com/wenpo1975/ipq6000-wifi.git
+  REPO_BRANCH: wifi
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: ./config/ipq6000-wifi.config
   DIY_P1_SH: ./scripts/diy-part1.sh
@@ -74,9 +74,7 @@ jobs:
         $GITHUB_WORKSPACE/$DIY_P1_SH
 
     - name: Update feeds
-      run: cd openwrt
-        chmod -R 775 *
-        ./scripts/feeds update -a
+      run: cd openwrt && ./scripts/feeds update -a
 
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
