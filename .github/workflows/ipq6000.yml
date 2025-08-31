@@ -130,7 +130,7 @@ jobs:
         echo "release_tag=ipq6000_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
         echo "ipq6000 firmware" >> release.txt
-        [ ${UPLOAD_GOFILE} = true && ${{ steps.gofile.outputs.url }} ] && echo "🔗 [GoFile](${{ steps.gofile.outputs.url }})" >> release.txt
+        [ "${UPLOAD_GOFILE}" = "true" ] && echo "🔗 [GoFile]()" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
