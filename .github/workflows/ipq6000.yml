@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/openwrt-fork/sdf8057-ipq6000.git
+  REPO_URL: https://github.com/reaichangzai/ipq6000.git
   REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: ./config/ipq6000.config
