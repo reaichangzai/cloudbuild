@@ -11,8 +11,8 @@
 name: ipq6000
 
 on:
-   repository_dispatch:
-   workflow_dispatch:
+  repository_dispatch:
+  workflow_dispatch:
 permissions:
   contents: write
   actions: write
