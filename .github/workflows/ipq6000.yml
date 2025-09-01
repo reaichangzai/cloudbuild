@@ -32,6 +32,8 @@ jobs:
   build:
     runs-on: ubuntu-22.04
 
+    steps:
+
     - name: Apt Update
       env:
         DEBIAN_FRONTEND: noninteractive
