@@ -34,6 +34,12 @@ jobs:
 
     steps:
 
+      # 安装指定版本的 Rust
+    - name: Install Rust 1.70.0
+      run: |
+        rustup toolchain install 1.70.0
+        rustup default 1.70.0
+          
     - name: Apt Update
       env:
         DEBIAN_FRONTEND: noninteractive
