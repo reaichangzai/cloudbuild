@@ -1,11 +1,6 @@
 #
-# Copyright (c) 2019-2020 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the MIT License.
-# See /LICENSE for more information.
-#
+# Copyright (c) 2019-2020 P3TERX
 # https://github.com/P3TERX/Actions-OpenWrt
-# Description: Build OpenWrt using GitHub Actions
 #
 
 name: ipq6000
@@ -33,19 +28,29 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+    - name: Checkout
+      uses: actions/checkout@main
 
-      # 安装指定版本的 Rust
+    # 缓存 Rust 工具链，避免重复安装
+    - name: Cache Rust
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo
+          ~/.rustup
+        key: ${{ runner.os }}-rust-1.70.0
+
     - name: Install Rust 1.70.0
       run: |
         rustup toolchain install 1.70.0
         rustup default 1.70.0
-          
+
     - name: Apt Update
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
         sudo apt-get update
-        
+
     - name: Free Disk Space
       uses: jlumbroso/free-disk-space@main
       with:
@@ -57,15 +62,12 @@ jobs:
         docker-images: true
         swap-storage: true
 
-    - name: Checkout
-      uses: actions/checkout@main
-
     - name: Initialization environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
         curl -s https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh | sudo bash
-        sudo apt-get install -y rename pigz libfuse-dev upx subversion clang
+        sudo apt-get install -y rename pigz libfuse-dev upx subversion clang ccache
         sudo apt-get autoremove -y --purge
         sudo apt-get clean
         sudo rm -rf po2lmo
@@ -83,12 +85,12 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Cache
+    - name: Cache OpenWrt build
       uses: stupidloud/cachewrtbuild@main
       with:
         ccache: 'true'
         prefix: ${{ github.workspace }}/openwrt
-        
+
     - name: Load custom feeds
       run: |
         set -x
@@ -117,6 +119,13 @@ jobs:
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
         cd openwrt
 
+    - name: Enable ccache
+      run: |
+        cd openwrt
+        echo "CONFIG_DEVEL=y" >> .config
+        echo "CONFIG_CCACHE=y" >> .config
+        make defconfig
+
     - name: Download package
       id: package
       run: |
@@ -130,8 +139,18 @@ jobs:
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        export USE_CCACHE=1
+        export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
+        ccache -M 2G
+        CORES=$(nproc)
+        if [ $CORES -gt 4 ]; then
+            JOBS=4
+        else
+            JOBS=$CORES
+        fi
+        echo -e "$JOBS thread compile"
+        make -j$JOBS || make -j1 V=s
+        ccache -s
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
@@ -159,17 +178,16 @@ jobs:
       uses: actions/upload-artifact@main
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: ipq6000${{ env.FILE_DATE }}
+        name: ipq6000${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
     - name: Generate release tag
       id: tag
       if: env.UPLOAD_RELEASE == 'true'
       run: |
-        echo "release_tag=ZN-M2-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        echo "release_tag=ZN-M2${DEVICE_NAME}-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
         echo "ipq6000 firmware" >> release.txt
-        [ "${UPLOAD_GOFILE}" = "true" ] && echo "🔗 [GoFile]()" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
@@ -178,7 +196,6 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        name: ${{ steps.tag.outputs.release_name }}
         tag_name: ${{ steps.tag.outputs.release_tag }}
         prerelease: true
         body_path: release.txt
@@ -191,5 +208,5 @@ jobs:
       uses: ophub/delete-releases-workflows@main
       with:
         delete_workflows: true
-        workflows_keep_day: 3
+        workflows_keep_day: 7
         gh_token: ${{ secrets.GITHUB_TOKEN }}
