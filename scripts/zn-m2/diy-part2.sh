@@ -12,3 +12,4 @@
 #优先安装 passwall 源
 #./scripts/feeds install -a -f -p passwall_packages
 #./scripts/feeds install -a -f -p passwall_luci
+./scripts/feeds install -a -f -p helloworld
