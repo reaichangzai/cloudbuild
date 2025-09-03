@@ -33,8 +33,6 @@ env:
 
 jobs:
   build:
-    env:
-      CGO_ENABLED: 1
     runs-on: ubuntu-22.04
 
     steps:
