@@ -159,7 +159,7 @@ jobs:
       id: tag
       if: env.UPLOAD_RELEASE == 'true'
       run: |
-        echo "release_tag=ZN-M2-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        echo "release_tag=v$(date +"%Y.%m.%d.%H%M")/zn-m2/basic" >> $GITHUB_OUTPUT
         touch release.txt
         echo "ZN-M2 firmware" >> release.txt
         grep luci-app-passwall ${{ env.FIRMWARE }}/openwrt-ipq60xx-generic-device-zn-m2.manifest | awk -F" - " '{print "Passwall " "`"$2"`"}' >> release.txt
@@ -172,14 +172,13 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
-      uses: softprops/action-gh-release@master
+      uses: softprops/action-gh-release@v2.1.0
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         name: ${{ steps.tag.outputs.release_name }}
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        prerelease: true
         body_path: release.txt
         files: |
          ${{ env.FIRMWARE }}/*.ubi
@@ -192,3 +191,8 @@ jobs:
         delete_workflows: true
         workflows_keep_day: 3
         gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Delete Tags without Release
+      uses: Huanyueyichen/delete-tags-without-release-action@v0.2.0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
