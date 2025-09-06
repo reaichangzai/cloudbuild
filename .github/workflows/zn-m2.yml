@@ -43,7 +43,7 @@ jobs:
       run: |
         sudo apt-get update
 
-    - name: 设置 Go 1.18 环境
+    - name: Set up Go
       uses: actions/setup-go@v4
       with:
         go-version: '1.18'
