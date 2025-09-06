@@ -42,12 +42,7 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
       run: |
         sudo apt-get update
-
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.18'
-        
+      
     - name: Free Disk Space
       uses: jlumbroso/free-disk-space@main
       with:
