@@ -45,6 +45,11 @@ jobs:
         rustup toolchain install 1.70.0
         rustup default 1.70.0
 
+    - name: Setup Go 1.26
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+
     - name: Apt Update
       env:
         DEBIAN_FRONTEND: noninteractive
@@ -68,15 +73,6 @@ jobs:
       run: |
         curl -s https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh | sudo bash
         sudo apt-get install -y rename pigz libfuse-dev upx subversion clang ccache lua5.1 liblua5.1-dev autoconf automake
-    
-        # 安装 Go 1.26 以满足 xray-core 的版本要求
-        wget -q https://go.dev/dl/go1.26.0.linux-amd64.tar.gz -O /tmp/go.tar.gz
-        sudo rm -rf /usr/local/go
-        sudo tar -C /usr/local -xzf /tmp/go.tar.gz
-        sudo update-alternatives --install /usr/bin/go go /usr/local/go/bin/go 1
-        sudo update-alternatives --install /usr/bin/gofmt gofmt /usr/local/go/bin/gofmt 1
-        go version
-    
         sudo apt-get autoremove -y --purge
         sudo apt-get clean
         sudo rm -rf po2lmo
@@ -86,6 +82,7 @@ jobs:
         git config --global init.defaultBranch master
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
+        go version
 
     - name: Clone source code
       working-directory: /workdir
