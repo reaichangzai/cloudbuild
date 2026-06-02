@@ -1,218 +1,63 @@
+################################################################################
+# IPQ6000 固件编译工作流 (调用编译核心)
 #
-# Copyright (c) 2019-2020 P3TERX
-# https://github.com/P3TERX/Actions-OpenWrt
+# 功能说明：
+# - 这是具体的设备编译工作流
+# - 调用核心编译工作流，传入 IPQ6000 相关参数
+# - 支持手动触发或仓库事件触发
 #
+################################################################################
 
-name: ipq6000
+name: Build IPQ6000 Firmware
 
 on:
   repository_dispatch:
   workflow_dispatch:
+
 permissions:
   contents: write
   actions: write
-  
-env:
-  REPO_URL: https://github.com/reaichangzai/ipq6000.git
-  REPO_BRANCH: master
-  FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: ./config/ipq6000.config
-  DIY_P1_SH: ./scripts/diy-part1.sh
-  DIY_P2_SH: ./scripts/diy-part2.sh
-  UPLOAD_BIN_DIR: false
-  UPLOAD_RELEASE: true
-  TZ: Asia/Shanghai
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    name: 🏗️ 编译 IPQ6000 固件
+    uses: ./.github/workflows/openwrt-build-core.yml
+    with:
+      # ========================================================================
+      # 源代码配置
+      # ========================================================================
+      repo_url: https://github.com/reaichangzai/ipq6000.git
+      repo_branch: master
+      
+      # ========================================================================
+      # 编译配置
+      # ========================================================================
+      config_file: ./config/ipq6000.config
+      feeds_conf: feeds.conf.default
+      diy_p1_sh: ./scripts/diy-part1.sh
+      diy_p2_sh: ./scripts/diy-part2.sh
+      
+      # ========================================================================
+      # 产物配置
+      # ========================================================================
+      upload_release: true
 
+################################################################################
+# 后续处理 (可选)
+################################################################################
+
+  notification:
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
     steps:
-    - name: Checkout
-      uses: actions/checkout@main
+      - name: 📢 编译完成通知
+        run: |
+          echo "固件编译完成!"
+          echo "设备: ${{ needs.build.outputs.device_name }}"
+          echo "路径: ${{ needs.build.outputs.firmware_path }}"
+          echo "时间: ${{ needs.build.outputs.build_time }}"
 
-    # 缓存 Rust 工具链，避免重复安装
-    - name: Cache Rust
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo
-          ~/.rustup
-        key: ${{ runner.os }}-rust-1.70.0
-
-    - name: Install Rust 1.70.0
-      run: |
-        rustup toolchain install 1.70.0
-        rustup default 1.70.0
-
-    - name: Setup Go 1.26
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.26'
-
-    - name: Apt Update
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo apt-get update
-
-    - name: Free Disk Space
-      uses: jlumbroso/free-disk-space@main
-      with:
-        tool-cache: true
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        docker-images: true
-        swap-storage: true
-
-    - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        curl -s https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh | sudo bash
-        sudo apt-get install -y rename pigz libfuse-dev upx subversion clang ccache lua5.1 liblua5.1-dev autoconf automake
-        sudo apt-get autoremove -y --purge
-        sudo apt-get clean
-        sudo rm -rf po2lmo
-        sudo timedatectl set-timezone "$TZ"
-        git config --global user.email ${{ github.actor }}@users.noreply.github.com
-        git config --global user.name ${{ github.actor }}
-        git config --global init.defaultBranch master
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
-        go version
-
-    - name: Clone source code
-      working-directory: /workdir
-      run: |
-        df -hT $PWD
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-
-    - name: Cache OpenWrt build
-      uses: stupidloud/cachewrtbuild@main
-      with:
-        ccache: 'true'
-        prefix: ${{ github.workspace }}/openwrt
-
-    - name: Load custom feeds
-      run: |
-        set -x
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
-
-    - name: Update feeds
-      run: cd openwrt && ./scripts/feeds update -a
-
-    - name: Modify feeds
-      run: |
-        set -x
-        chmod +x $DIY_P2_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
-
-    - name: Install feeds
-      run: cd openwrt && ./scripts/feeds install -a
-
-    - name: Load custom configuration
-      run: |
-        set -x
-        [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-        cd openwrt
-
-    - name: Enable ccache
-      run: |
-        cd openwrt
-        echo "CONFIG_DEVEL=y" >> .config
-        echo "CONFIG_CCACHE=y" >> .config
-        make defconfig
-
-    - name: Download package
-      id: package
-      run: |
-        cd openwrt
-        make defconfig
-        make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
-
-    - name: Compile the firmware
-      id: compile
-      run: |
-        cd openwrt
-        export USE_CCACHE=1
-        export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
-        ccache -M 2G
-        CORES=$(nproc)
-        if [ $CORES -gt 4 ]; then
-            JOBS=4
-        else
-            JOBS=$CORES
-        fi
-        echo -e "$JOBS thread compile"
-        make -j$JOBS || make -j1 V=s
-        ccache -s
-        echo "status=success" >> $GITHUB_OUTPUT
-        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-
-    - name: Check space usage
-      run: df -hT
-
-    - name: Upload bin directory
-      uses: actions/upload-artifact@main
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
-
-    - name: Organize files
-      id: organize
-      run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware directory
-      uses: actions/upload-artifact@main
-      if: steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        name: ipq6000${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
-
-    - name: Generate release tag
-      id: tag
-      if: env.UPLOAD_RELEASE == 'true'
-      run: |
-        echo "release_tag=ZN-M2${DEVICE_NAME}-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        touch release.txt
-        echo "ipq6000 firmware" >> release.txt
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@master
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        prerelease: true
-        body_path: release.txt
-        files: |
-         ${{ env.FIRMWARE }}/*.ubi
-         ${{ env.FIRMWARE }}/*.bin
-         ${{ env.FIRMWARE }}/*.manifest
-
-    - name: Delete releases and workflows runs
-      uses: ophub/delete-releases-workflows@main
-      with:
-        delete_workflows: true
-        workflows_keep_day: 7
-        gh_token: ${{ secrets.GITHUB_TOKEN }}
+################################################################################
+# 工作流完成
+################################################################################
