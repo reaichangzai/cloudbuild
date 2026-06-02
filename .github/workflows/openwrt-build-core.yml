@@ -1,0 +1,382 @@
+################################################################################
+# OpenWrt 编译核心工作流 (可复用的基础工作流)
+#
+# 功能说明：
+# - 这是可复用的编译模板，通过 workflow_call 被其他工作流调用
+# - 包含完整的编译逻辑和依赖管理
+# - 支持参数化配置，不同设备只需改变参数即可
+#
+# 调用方式：
+# jobs:
+#   build:
+#     uses: ./.github/workflows/openwrt-build-core.yml
+#     with:
+#       repo_url: https://github.com/xxx/openwrt.git
+#       config_file: ./config/xxx.config
+#
+################################################################################
+
+name: OpenWrt Build Core
+
+on:
+  workflow_call:
+    inputs:
+      repo_url:
+        description: 'OpenWrt 源代码仓库 URL'
+        required: true
+        type: string
+      repo_branch:
+        description: 'OpenWrt 源代码分支'
+        required: false
+        type: string
+        default: 'master'
+      config_file:
+        description: '编译配置文件路径'
+        required: true
+        type: string
+      feeds_conf:
+        description: 'Feeds 配置文件路径'
+        required: false
+        type: string
+        default: 'feeds.conf.default'
+      diy_p1_sh:
+        description: 'DIY 脚本 Part 1 路径 (更新 feeds 前)'
+        required: false
+        type: string
+        default: './scripts/diy-part1.sh'
+      diy_p2_sh:
+        description: 'DIY 脚本 Part 2 路径 (更新 feeds 后)'
+        required: false
+        type: string
+        default: './scripts/diy-part2.sh'
+      upload_release:
+        description: '是否上传到 Release'
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      firmware_path:
+        description: '编译产物路径'
+        value: ${{ jobs.build.outputs.firmware_path }}
+      device_name:
+        description: '设备名称'
+        value: ${{ jobs.build.outputs.device_name }}
+      build_time:
+        description: '编译时间戳'
+        value: ${{ jobs.build.outputs.build_time }}
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  TZ: Asia/Shanghai
+  USE_CCACHE: 1
+  CCACHE_SIZE: 2G
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    outputs:
+      firmware_path: ${{ env.FIRMWARE }}
+      device_name: ${{ env.DEVICE_NAME }}
+      build_time: ${{ env.FILE_DATE }}
+    
+    steps:
+    ############################################################################
+    # 第一部分: 环境准备
+    ############################################################################
+    
+    - name: 📥 检出源代码
+      uses: actions/checkout@v4
+
+    - name: 🔄 设置时区为 Asia/Shanghai
+      run: |
+        sudo timedatectl set-timezone "$TZ"
+        date
+
+    ############################################################################
+    # 第二部分: 系统依赖安装
+    ############################################################################
+
+    - name: 💾 释放磁盘空间
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: true
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
+
+    - name: 📦 更新系统包索引
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo apt-get update -qq
+        echo "✅ 系统更新完成"
+
+    - name: 🛠️ 安装编译依赖
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        # 执行 ImmortalWrt 官方初始化脚本
+        curl -s https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh | sudo bash
+        
+        # 安装额外工具
+        sudo apt-get install -y \
+          rename pigz libfuse-dev upx subversion clang ccache \
+          lua5.1 liblua5.1-dev autoconf automake
+        
+        echo "✅ 编译依赖安装完成"
+
+    ############################################################################
+    # 第三部分: Go 编译环境设置
+    ############################################################################
+
+    - name: 🐹 安装 Go 1.26
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+        cache: false
+      env:
+        GOTOOLCHAIN: local
+
+    - name: ✅ 验证 Go 版本
+      run: |
+        go version
+        which go
+
+    ############################################################################
+    # 第四部分: Rust 工具链 (某些包可能需要)
+    ############################################################################
+
+    - name: 🦀 缓存 Rust 工具链
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo
+          ~/.rustup
+        key: ${{ runner.os }}-rust-1.70.0
+
+    - name: 🦀 安装 Rust 1.70.0
+      run: |
+        rustup toolchain install 1.70.0
+        rustup default 1.70.0
+
+    ############################################################################
+    # 第五部分: OpenWrt 源代码克隆
+    ############################################################################
+
+    - name: 📂 克隆 OpenWrt 源代码
+      working-directory: /workdir
+      run: |
+        # 创建工作目录
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
+        
+        # 克隆源代码 (使用 --depth=1 加快速度)
+        df -hT $PWD
+        git clone ${{ inputs.repo_url }} -b ${{ inputs.repo_branch }} openwrt --depth=1
+        
+        # 创建符号链接
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+        
+        cd openwrt && du -sh . && echo "✅ 源代码克隆完成"
+
+    ############################################################################
+    # 第六部分: 编译缓存
+    ############################################################################
+
+    - name: 💿 缓存 OpenWrt 编译产物
+      uses: stupidloud/cachewrtbuild@main
+      with:
+        ccache: 'true'
+        prefix: ${{ github.workspace }}/openwrt
+
+    ############################################################################
+    # 第七部分: Feeds 管理
+    ############################################################################
+
+    - name: 📋 加载自定义 Feeds 配置
+      run: |
+        [ -e ${{ inputs.feeds_conf }} ] && mv ${{ inputs.feeds_conf }} openwrt/feeds.conf.default
+        [ -e ${{ inputs.diy_p1_sh }} ] && chmod +x ${{ inputs.diy_p1_sh }}
+        [ -e ${{ inputs.diy_p1_sh }} ] && cd openwrt && $GITHUB_WORKSPACE/${{ inputs.diy_p1_sh }}
+        echo "✅ Feeds 配置加载完成"
+
+    - name: 🔄 更新 Feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        echo "✅ Feeds 更新完成"
+
+    - name: 🔧 修改 Feeds 配置 (DIY Part 2)
+      run: |
+        [ -e ${{ inputs.diy_p2_sh }} ] && chmod +x ${{ inputs.diy_p2_sh }}
+        [ -e ${{ inputs.diy_p2_sh }} ] && cd openwrt && $GITHUB_WORKSPACE/${{ inputs.diy_p2_sh }}
+        echo "✅ Feeds 修改完成"
+
+    - name: 📥 安装 Feeds 包
+      run: |
+        cd openwrt
+        ./scripts/feeds install -a
+        echo "✅ Feeds 安装完成"
+
+    ############################################################################
+    # 第八部分: 加载编译配置
+    ############################################################################
+
+    - name: 📄 加载编译配置文件
+      run: |
+        [ -e files ] && mv files openwrt/files
+        [ -e ${{ inputs.config_file }} ] && mv ${{ inputs.config_file }} openwrt/.config
+        cd openwrt && cat .config | head -10
+        echo "✅ 配置文件加载完成"
+
+    - name: ⚙️ 启用编译加速
+      run: |
+        cd openwrt
+        echo "CONFIG_DEVEL=y" >> .config
+        echo "CONFIG_CCACHE=y" >> .config
+        make defconfig
+        echo "✅ 编译参数配置完成"
+
+    ############################################################################
+    # 第九部分: 下载依赖
+    ############################################################################
+
+    - name: 📡 下载编译依赖
+      id: package
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j8 V=s
+        
+        # 删除损坏的下载文件
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+        
+        echo "status=success" >> $GITHUB_OUTPUT
+        echo "✅ 依赖下载完成"
+
+    ############################################################################
+    # 第十部分: 编译固件 (核心步骤)
+    ############################################################################
+
+    - name: 🔨 编译固件
+      id: compile
+      run: |
+        cd openwrt
+        
+        # 配置编译加速
+        export USE_CCACHE=${{ env.USE_CCACHE }}
+        export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
+        ccache -M ${{ env.CCACHE_SIZE }}
+        ccache -z
+        
+        # 计算最优编译线程数
+        CORES=$(nproc)
+        if [ $CORES -gt 4 ]; then
+            JOBS=4
+        else
+            JOBS=$CORES
+        fi
+        echo "🔢 使用 $JOBS 个线程编译"
+        
+        # 编译 (失败自动降级为单线程)
+        echo "⏱️ 开始编译..."
+        make -j$JOBS || make -j1 V=s
+        
+        # 显示缓存统计
+        ccache -s
+        
+        # 提取设备名称和时间戳
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV || echo "DEVICE_NAME=" >> $GITHUB_ENV
+        echo "FILE_DATE=_$(date +"%Y%m%d_%H%M%S")" >> $GITHUB_ENV
+        
+        echo "status=success" >> $GITHUB_OUTPUT
+        echo "✅ 固件编译完成"
+
+    - name: 💾 检查磁盘空间
+      run: df -hT
+
+    ############################################################################
+    # 第十一部分: 产物整理
+    ############################################################################
+
+    - name: 📦 整理编译产物
+      id: organize
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        ls -lh
+        
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+        echo "✅ 产物整理完成"
+
+    - name: 📤 上传到 Artifacts
+      uses: actions/upload-artifact@v4
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: openwrt-firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: ${{ env.FIRMWARE }}
+        retention-days: 5
+
+    ############################################################################
+    # 第十二部分: 发布到 Release
+    ############################################################################
+
+    - name: 🏷️ 生成 Release 标签
+      id: tag
+      if: inputs.upload_release == true && !cancelled()
+      run: |
+        RELEASE_TAG="OpenWrt-$(date +%Y.%m.%d-%H%M%S)"
+        echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+        
+        cat > release.txt << EOF
+        # OpenWrt 固件编译成功
+        
+        编译时间: $(date '+%Y-%m-%d %H:%M:%S %Z')
+        
+        ## 编译信息
+        - 仓库: ${{ inputs.repo_url }}
+        - 分支: ${{ inputs.repo_branch }}
+        - 配置文件: ${{ inputs.config_file }}
+        
+        ## 包含文件
+        - \`*.ubi\` - UBI 镜像
+        - \`*.bin\` - 可刷写固件
+        - \`*.manifest\` - 编译清单
+        
+        EOF
+        
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: 🚀 发布到 Release
+      uses: softprops/action-gh-release@master
+      if: steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        prerelease: false
+        files: |
+          ${{ env.FIRMWARE }}/*.ubi
+          ${{ env.FIRMWARE }}/*.bin
+          ${{ env.FIRMWARE }}/*.manifest
+
+    - name: 🗑️ 删除旧发布
+      uses: ophub/delete-releases-workflows@main
+      with:
+        delete_workflows: true
+        workflows_keep_day: 7
+        gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+################################################################################
+# 工作流完成
+################################################################################
