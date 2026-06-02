@@ -122,7 +122,7 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
       run: |
         # 执行 ImmortalWrt 官方初始化脚本
-        curl -s https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh | sudo bash
+        curl -fsSL https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh | sudo bash
         
         # 安装额外工具
         sudo apt-get install -y \
@@ -135,10 +135,10 @@ jobs:
     # 第三部分: Go 编译环境设置
     ############################################################################
 
-    - name: 🐹 安装 Go 1.26
+    - name: 🐹 安装 Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.26'
+        go-version: '1.25'
         cache: false
       env:
         GOTOOLCHAIN: local
@@ -158,33 +158,33 @@ jobs:
         path: |
           ~/.cargo
           ~/.rustup
-        key: ${{ runner.os }}-rust-1.70.0
+        key: ${{ runner.os }}-rust-stable
 
-    - name: 🦀 安装 Rust 1.70.0
+    - name: 🦀 安装 Rust
       run: |
-        rustup toolchain install 1.70.0
-        rustup default 1.70.0
+        rustup toolchain install stable
+        rustup default stable
 
     ############################################################################
     # 第五部分: OpenWrt 源代码克隆
     ############################################################################
 
     - name: 📂 克隆 OpenWrt 源代码
-      working-directory: /workdir
       run: |
-        # 创建工作目录
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
+        echo "当前工作目录: $GITHUB_WORKSPACE"
+        df -hT .
         
-        # 克隆源代码 (使用 --depth=1 加快速度)
-        df -hT $PWD
-        git clone ${{ inputs.repo_url }} -b ${{ inputs.repo_branch }} openwrt --depth=1
-        
-        # 创建符号链接
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-        
-        cd openwrt && du -sh . && echo "✅ 源代码克隆完成"
+        rm -rf openwrt
 
+        # 克隆源代码
+        git clone ${{ inputs.repo_url }} \
+          -b ${{ inputs.repo_branch }} \
+          openwrt \
+          --depth=1
+
+        cd openwrt
+        du -sh .
+        echo "✅ 源代码克隆完成"
     ############################################################################
     # 第六部分: 编译缓存
     ############################################################################
