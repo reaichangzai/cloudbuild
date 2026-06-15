@@ -186,6 +186,6 @@ jobs:
         gh_token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Delete Tags without Release
-      uses: Huanyueyichen/delete-tags-without-release-action@v0.2.0
+      uses: actions/delete-package-versions@v5
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
